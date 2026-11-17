@@ -1,0 +1,8 @@
+.DS_Store
+Thumbs.db
+.playwright-cli/
+node_modules/
+output/
+public/
+assets/font/LXGWWenKaiScreen.ttf
+*.optimized.png

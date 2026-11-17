@@ -1,0 +1,132 @@
+export const APP_REPOSITORY = 'https://github.com/arrry-07/chaoxing-journal';
+export const RELEASE_API = 'https://api.github.com/repos/arrry-07/chaoxing-journal/releases/latest';
+
+export const FALLBACK_RELEASE = Object.freeze({
+  version: '1.8.08',
+  tag: 'v1.8.08',
+  apkName: 'chaoxing-journal-1.8.08.apk',
+  downloadUrl: `${APP_REPOSITORY}/releases/download/v1.8.08/chaoxing-journal-1.8.08.apk`,
+  releaseUrl: `${APP_REPOSITORY}/releases/tag/v1.8.08`,
+  checksumUrl: `${APP_REPOSITORY}/releases/download/v1.8.08/SHA256SUMS.txt`,
+  checksum: 'd672eec792372fada2bd76f82fd06dc13a52f89170aa5bb6797dca1aeb3c946b',
+  size: 59442054,
+});
+
+function parseVersionTag(tag) {
+  if (typeof tag !== 'string') return null;
+  const match = /^v(\d+)\.(\d+)\.(\d+)$/.exec(tag);
+  if (!match) return null;
+  return { version: match.slice(1).join('.'), numbers: match.slice(1).map(Number) };
+}
+
+export function compareVersions(first, second) {
+  const firstParts = first.split('.').map(Number);
+  const secondParts = second.split('.').map(Number);
+  for (let index = 0; index < 3; index += 1) {
+    if (firstParts[index] !== secondParts[index]) return firstParts[index] - secondParts[index];
+  }
+  return 0;
+}
+
+function validAssetUrl(asset, expectedUrl) {
+  if (typeof asset?.browser_download_url !== 'string') return false;
+  try {
+    const url = new URL(asset.browser_download_url);
+    return url.href === expectedUrl && url.protocol === 'https:' && url.hostname === 'github.com'
+      && url.username === '' && url.password === '' && url.port === '' && url.search === '' && url.hash === '';
+  } catch {
+    return false;
+  }
+}
+
+function validChecksum(value) {
+  return typeof value === 'string' && /^[a-fA-F0-9]{64}$/.test(value) ? value.toLowerCase() : null;
+}
+
+export function parseGitHubRelease(release) {
+  if (!release || typeof release !== 'object' || release.draft !== false || release.prerelease !== false
+    || !Array.isArray(release.assets)) {
+    throw new Error('invalid-release');
+  }
+  const parsedTag = parseVersionTag(release.tag_name);
+  if (!parsedTag) throw new Error('invalid-version');
+  if (compareVersions(parsedTag.version, FALLBACK_RELEASE.version) < 0) throw new Error('stale-release');
+  const { version } = parsedTag;
+  const prefix = `${APP_REPOSITORY}/releases/download/${release.tag_name}/`;
+  const apkName = `chaoxing-journal-${version}.apk`;
+  const apk = release.assets.find((asset) => asset?.name === apkName);
+  if (!apk || !validAssetUrl(apk, `${prefix}${apkName}`)
+    || !Number.isSafeInteger(apk.size) || apk.size < 1048576 || apk.size > 524288000) {
+    throw new Error('invalid-apk');
+  }
+  const checksum = release.assets.find((asset) => asset?.name === 'SHA256SUMS.txt');
+  const checksumUrl = checksum && validAssetUrl(checksum, `${prefix}SHA256SUMS.txt`) ? checksum.browser_download_url : null;
+  const checksumValue = apk.digest === undefined ? null : validChecksum(apk.digest?.replace(/^sha256:/, ''));
+  if (apk.digest !== undefined && checksumValue === null) throw new Error('invalid-digest');
+  return {
+    version,
+    tag: release.tag_name,
+    apkName,
+    downloadUrl: apk.browser_download_url,
+    releaseUrl: `${APP_REPOSITORY}/releases/tag/${release.tag_name}`,
+    checksumUrl,
+    checksum: checksumValue,
+    size: apk.size,
+  };
+}
+
+export function formatBytes(bytes) {
+  return `${(bytes / 1048576).toFixed(1)} MB`;
+}
+
+export async function fetchLatestRelease({ fetchImplementation = globalThis.fetch, signal, timeoutMs = 6000 } = {}) {
+  if (typeof fetchImplementation !== 'function') throw new Error('fetch-unavailable');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(new Error('timeout')), timeoutMs);
+  const onAbort = () => controller.abort(signal.reason);
+  if (signal?.aborted) onAbort();
+  signal?.addEventListener('abort', onAbort, { once: true });
+  try {
+    const response = await fetchImplementation(RELEASE_API, {
+      headers: { Accept: 'application/vnd.github+json' },
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error('release-request-failed');
+    const latest = parseGitHubRelease(await response.json());
+    return { release: latest, isFallback: false };
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener('abort', onAbort);
+  }
+}
+
+export function applyRelease(document, result) {
+  const { release, isFallback } = result;
+  document.querySelectorAll('[data-download]').forEach((link) => { link.href = release.downloadUrl; });
+  document.querySelectorAll('[data-release-version]').forEach((element) => { element.textContent = release.version; });
+  document.querySelectorAll('[data-release-size]').forEach((element) => { element.textContent = formatBytes(release.size); });
+  document.querySelectorAll('[data-release-url]').forEach((link) => { link.href = release.releaseUrl; });
+  document.querySelectorAll('[data-release-status]').forEach((element) => {
+    element.textContent = isFallback ? '已核验回退版本 · 暂时无法读取最新发布' : `GitHub 最新正式版 · ${release.version}`;
+  });
+  const checksumLinks = document.querySelectorAll('[data-checksum-url]');
+  const checksumValue = document.querySelector('[data-checksum-value]');
+  const checksumCaption = document.querySelector('[data-checksum-caption]');
+  if (release.checksumUrl) {
+    checksumLinks.forEach((link) => { link.href = release.checksumUrl; link.hidden = false; });
+  } else {
+    checksumLinks.forEach((link) => { link.hidden = true; });
+  }
+  if (checksumValue && checksumCaption) {
+    if (release.checksum) {
+      checksumValue.textContent = release.checksum;
+      checksumValue.hidden = false;
+      checksumCaption.textContent = `以下 SHA-256 对应 ${release.version} 安装包，由同一 GitHub Release 提供。`;
+    } else {
+      checksumValue.textContent = '';
+      checksumValue.hidden = true;
+      checksumCaption.textContent = `${release.version} 未提供可核验的在线摘要，请使用同版本发布页的校验说明。`;
+    }
+  }
+  return result;
+}

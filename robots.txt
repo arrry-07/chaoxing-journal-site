@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://arrry-07.github.io/chaoxing-journal-site/sitemap.xml

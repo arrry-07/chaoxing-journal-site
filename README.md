@@ -1,0 +1,64 @@
+# 课业手记官网
+
+[打开官网](https://arrry-07.github.io/chaoxing-journal-site/) · [应用仓库](https://github.com/arrry-07/chaoxing-journal) · [下载 Android 正式版](https://github.com/arrry-07/chaoxing-journal/releases/latest)
+
+课业手记的独立静态官网：暖纸色手账风格、真实应用截图、Android 安装指南、隐私边界和 GitHub Release 下载。
+
+## 架构与发布
+
+- 根目录原生 HTML、CSS 与 ES Modules；无前端框架、运行时依赖、账号系统、统计脚本、后端或 GitHub Token。
+- `main` 分支与 Pull Request 运行 Node 测试、静态资源检查和 GitHub 正式 Release 契约检查。
+- `main` 分支通过 GitHub Pages 官方 Actions 发布网站。仓库 Settings → Pages → Build and deployment → Source 选择 **GitHub Actions**。
+- 官网只托管说明与素材，不代理或重新上传 APK。下载按钮直接链接应用仓库 Release 的实际 APK 资产。
+- `404.html` 使用 Pages 项目路径 `/chaoxing-journal-site/`；本地测试只针对首页，不模拟 Pages 的 404 回退路由。
+
+## 下载版本与回退
+
+`scripts/release-store.js` 是唯一版本与下载状态入口。页面初始 HTML 始终保留一个已核验的真实 APK 链接，禁用 JavaScript 或 GitHub API 暂不可达时仍可下载。
+
+正常加载时，页面从 `https://api.github.com/repos/arrry-07/chaoxing-journal/releases/latest` 读取最新正式版，验证：
+
+- 非草稿、非预发布；
+- `vX.Y.Z` Tag 与 `chaoxing-journal-X.Y.Z.apk` 文件名对应；
+- APK 与校验文件均位于应用仓库的同版本 GitHub Release 下载地址；
+- APK 大小合理，API 提供的 `sha256:` 摘要格式合法。
+
+6 秒超时、限流、旧版本、资源缺失或异常 URL 均由 `scripts/site.js` 显示核验回退版本。回退默认 `1.8.08`，不会把旧 SHA-256 用于新版。未来新版若缺少同版本校验信息，下载仍可用，但页面不显式展示陈旧校验值。
+
+**更新回退版本时**必须同时更新模块中的版本、Tag、APK URL、Release URL、校验 URL、大小及 SHA-256，以及 `index.html` 的无脚本初始值，并用实际发布页重新回下载核对。默认路径和静态直链不需要随每次新版手动修改；GitHub API 成功时页面会自动更新。
+
+## 本地验证
+
+需要 Node.js 22 或更新，无需安装 npm 依赖。
+
+```sh
+npm test
+node --check scripts/site.js
+node --check scripts/release-store.js
+node scripts/check-site.js
+node scripts/package-site.js
+npm run serve
+```
+
+打开 `http://127.0.0.1:4173/`。浏览器需支持原生 ES Modules；请通过本地 HTTP 服务预览，不以 `file://` 作为模块正常加载的验收环境。
+
+`scripts/check-site.js` 验证所有发布文件、相对链接、锚点、截图、WOFF2 字体、基础无障碍属性和线上 Release 契约。测试使用固定数据，不发送账号或请求凭据；浏览器验收另外检查正常 API、异常回退、禁用 JavaScript、手机布局、键盘操作与真实 APK 下载。
+
+有可选 Playwright 环境时，可在启动预览后执行 `node scripts/browser-check.mjs`。它默认使用本机 Chrome；默认 URL 为 `http://127.0.0.1:4173/`，可通过 `SITE_QA_URL` 验证 Pages 项目路径；报告及下载包写入忽略的 `output/playwright/`。该脚本不属于网站运行或 Pages 发布依赖。
+
+`scripts/package-site.js` 将明确允许的网页、样式、图片、字体与两个运行模块写入忽略的 `public/`，作为 Pages 的唯一打包输入。`LICENSE` 和字体许可保留在源码仓库；发布网站通过应用仓库和字体来源链接提供相应许可说明。
+
+应用指南含历史版本说明，当前网站只使用 API 接受的 `vX.Y.Z` 正式包命名方案；应用约定修改时，下载校验需同步保持与实际发布一致。
+
+## 素材与许可
+
+- 应用图标`cat_app_icon.png`与首页/统计/我的界面截图来自[应用仓库](https://github.com/arrry-07/chaoxing-journal)。截图使用合成样例数据，不包含真实账号信息。
+- 三张应用截图与原始文件逐字节一致，不修改截图内状态与文字。猫咪图标从应用原图等比缩放为 256px，补上暖纸底色，编码成 `cat-app-icon.webp`；分享用 `app-launcher.png` 同样从该应用图标生成，不使用第三方标识。
+- `assets/font/LXGWWenKaiScreen.woff2` 从应用仓库内置的 LXGW WenKai Screen TTF 裁剪为官网文案所需字形并通过 WOFF2 网页字体交付，保留网页排版所用映射，不添加或重绘字形，不作为桌面字体发布。字体族名使用 `Journal Serif`，不把裁剪文件冒称完整原始字体。原始版权与 SIL OFL 1.1 完整保留在 `assets/font/OFL-WenKai.txt`，其附加许可允许该网页交付转换。原始 TTF 与转换规范见[字体来源仓库](https://github.com/lxgw/LxgwWenKai-Screen)。
+- 网站源码按 `LICENSE` 中的 MIT 许可使用；应用与素材各自的上游许可不因本网站许可改变。
+
+## 维护范围
+
+当前下载区只有 Android；没有 iOS、Windows、macOS 的未发布下载按钮。如果未来新增已验收平台，扩展下载组件与对应验证后再上线，不释放“敬请期待”的假按钮。
+
+应用功能、隐私与兼容性以应用仓库的实际实现和当前指南为准。本仓库变更不替换应用版本、不修改应用签名、不代替 APK 发布验收。
