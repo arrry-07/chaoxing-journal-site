@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { FALLBACK_RELEASE, RELEASE_API } from './release-store.js';
 
