@@ -29,6 +29,8 @@ jobs:
       - name: Test site and live release contract
         run: npm test
       - name: Check deployable files
+        env:
+          CHECK_RELEASE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           node --check scripts/site.js
           node --check scripts/release-store.js

@@ -68,7 +68,7 @@ try {
   await page.locator('#tab-statistics').click();
   await page.locator('#panel-statistics img').evaluate((image) => image.decode());
   await page.keyboard.press('Home');
-  await page.locator('footer').scrollIntoViewIfNeeded();
+  await page.locator('footer').evaluate((element) => element.scrollIntoView({ block: 'end' }));
   await page.locator('footer img').evaluate((image) => image.decode());
   assert.equal(await page.locator('img').evaluateAll((images) => images.every((image) => image.complete && image.naturalWidth > 0)), true);
   pass('tabs follow focus with arrows, Home and End');
@@ -79,7 +79,12 @@ try {
     'https://github.com/arrry-07/chaoxing-journal/blob/main/docs/guides/%E5%AE%89%E8%A3%85%E4%B8%8E%E4%BD%BF%E7%94%A8.md',
     'https://github.com/arrry-07/chaoxing-journal/blob/main/docs/guides/%E9%9A%90%E7%A7%81%E4%B8%8E%E5%AE%89%E5%85%A8.md',
   ]) {
-    const response = await page.request.get(url, { maxRedirects: 5 });
+    let response;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      response = await page.request.get(url, { maxRedirects: 5 });
+      if (response.ok()) break;
+      console.log(`External link retry ${attempt + 1}: ${url} (${response.status()})`);
+    }
     assert.equal(response.ok(), true, url);
   }
   const checksumResponse = await page.request.get(FALLBACK_RELEASE.checksumUrl, { maxRedirects: 5 });

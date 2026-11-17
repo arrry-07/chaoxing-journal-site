@@ -38,7 +38,16 @@ assert.ok(css.includes('[hidden]'));
 assert.ok(/^wOF2/.test(await readFile(resolve(root, 'assets/font/LXGWWenKaiScreen.woff2'), 'latin1')), 'The embedded web font must be WOFF2.');
 
 const apiUrl = 'https://api.github.com/repos/arrry-07/chaoxing-journal/releases/latest';
-const response = await fetch(apiUrl, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'chaoxing-journal-site-check' }, signal: AbortSignal.timeout(15000) });
+const ciToken = process.env.CHECK_RELEASE_TOKEN;
+if (ciToken && !process.env.GITHUB_ACTIONS) throw new Error('The CI token is only read in GitHub Actions.');
+const response = await fetch(apiUrl, {
+  headers: {
+    Accept: 'application/vnd.github+json',
+    'User-Agent': 'chaoxing-journal-site-check',
+    ...(ciToken ? { Authorization: `Bearer ${ciToken}`, 'X-GitHub-Api-Version': '2022-11-28' } : {}),
+  },
+  signal: AbortSignal.timeout(15000),
+});
 assert.ok(response.ok, `GitHub Release API returned ${response.status}`);
 const latest = parseGitHubRelease(await response.json());
 assert.ok(latest, 'Live release must have a valid APK');

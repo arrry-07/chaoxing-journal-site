@@ -42,11 +42,11 @@ npm run serve
 
 打开 `http://127.0.0.1:4173/`。浏览器需支持原生 ES Modules；请通过本地 HTTP 服务预览，不以 `file://` 作为模块正常加载的验收环境。
 
-`scripts/check-site.js` 验证所有发布文件、相对链接、锚点、截图、WOFF2 字体、基础无障碍属性和线上 Release 契约。测试使用固定数据，不发送账号或请求凭据；浏览器验收另外检查正常 API、异常回退、禁用 JavaScript、手机布局、键盘操作与真实 APK 下载。
+`scripts/check-site.js` 验证所有发布文件、相对链接、锚点、截图、WOFF2 字体、基础无障碍属性和线上 Release 契约。测试使用固定数据，不发送账号或请求凭据；浏览器验收另外检查正常 API、异常回退、禁用 JavaScript、手机布局、键盘操作与真实 APK 下载。CI 在官方 Actions 中使用自动注入的只读 `GITHUB_TOKEN` 避免 GitHub 匿名接口限流，令牌不进入网页、打包目录或日志；本地检查不使用该变量。
 
 有可选 Playwright 环境时，可在启动预览后执行 `node scripts/browser-check.mjs`。它默认使用本机 Chrome；默认 URL 为 `http://127.0.0.1:4173/`，可通过 `SITE_QA_URL` 验证 Pages 项目路径；报告及下载包写入忽略的 `output/playwright/`。该脚本不属于网站运行或 Pages 发布依赖。
 
-`scripts/package-site.js` 将明确允许的网页、样式、图片、字体与两个运行模块写入忽略的 `public/`，作为 Pages 的唯一打包输入。`LICENSE` 和字体许可保留在源码仓库；发布网站通过应用仓库和字体来源链接提供相应许可说明。
+`scripts/package-site.js` 将明确允许的网页、样式、图片、字体与两个运行模块写入忽略的 `public/`，作为 Pages 的唯一打包输入。完整 `LICENSE` 与 `OFL-WenKai.txt` 保留在源码仓库，静态产物中同时携带字体许可；发布网站通过应用仓库和字体来源链接提供相应许可说明。
 
 应用指南含历史版本说明，当前网站只使用 API 接受的 `vX.Y.Z` 正式包命名方案；应用约定修改时，下载校验需同步保持与实际发布一致。
 
