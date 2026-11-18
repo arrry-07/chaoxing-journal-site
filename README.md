@@ -23,9 +23,16 @@
 - APK 与校验文件均位于应用仓库的同版本 GitHub Release 下载地址；
 - APK 大小合理，API 提供的 `sha256:` 摘要格式合法。
 
-6 秒超时、限流、旧版本、资源缺失或异常 URL 均由 `scripts/site.js` 显示核验回退版本。回退默认 `1.8.08`，不会把旧 SHA-256 用于新版。未来新版若缺少同版本校验信息，下载仍可用，但页面不显式展示陈旧校验值。
+6 秒超时、限流、旧版本、资源缺失或异常 URL 均由 `scripts/site.js` 显示核验回退版本。当前回退为 `1.8.15`，静态状态写作「已核验下载版本」，关闭 JavaScript 时同样成立；不会把旧 SHA-256 用于新版。未来新版若缺少同版本校验信息，下载仍可用，但页面不显式展示陈旧校验值。
 
-**更新回退版本时**必须同时更新模块中的版本、Tag、APK URL、Release URL、校验 URL、大小及 SHA-256，以及 `index.html` 的无脚本初始值，并用实际发布页重新回下载核对。默认路径和静态直链不需要随每次新版手动修改；GitHub API 成功时页面会自动更新。
+**应用每发布一个正式版后**，先匿名读取应用仓库 `releases/latest`，确认它是公开正式 Release，并完整下载一次 APK，对照 GitHub 资产大小、`digest` 和同 Tag `SHA256SUMS.txt` 中对应文件名的那一行。通过后再同步更新：
+
+- `scripts/release-store.js` 中的版本、Tag、APK 名称、下载地址、发布页、校验文件地址、字节数与 SHA-256；
+- `index.html` 中全部下载按钮、版本、大小、发布页、校验文件链接、摘要与无脚本状态；
+- `tests/release-store.test.js` 的同版、较旧版及较新版样本；
+- `README.md` 中的回退版本说明。
+
+更新后运行 `npm run check`、`node scripts/package-site.js` 和 `git diff --check`。`scripts/check-site.js` 会逐一校验所有 `data-download`、版本、大小、发布页、校验地址和摘要，避免只改了一个按钮仍然通过。浏览器脚本必须把真实回退 APK 下载放在强制 API 503 的场景里，再按实际文件名、字节数与 SHA-256 断言。
 
 ## 本地验证
 
