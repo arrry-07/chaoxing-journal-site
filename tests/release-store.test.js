@@ -9,25 +9,30 @@ import {
   parseGitHubRelease,
 } from '../scripts/release-store.js';
 
-function response() {
-  return {
-    draft: false,
-    prerelease: false,
-    tag_name: 'v1.8.08',
-    assets: [
-      {
-        name: 'chaoxing-journal-1.8.08.apk',
-        size: 59442054,
-        browser_download_url: 'https://github.com/arrry-07/chaoxing-journal/releases/download/v1.8.08/chaoxing-journal-1.8.08.apk',
-        digest: 'sha256:d672eec792372fada2bd76f82fd06dc13a52f89170aa5bb6797dca1aeb3c946b',
-      },
-      {
-        name: 'SHA256SUMS.txt',
-        size: 95,
-        browser_download_url: 'https://github.com/arrry-07/chaoxing-journal/releases/download/v1.8.08/SHA256SUMS.txt',
-      },
-    ],
+function nextPatch(version, delta) {
+  const parts = version.split('.').map(Number);
+  parts[2] += delta;
+  return parts.join('.');
+}
+
+const OLDER_VERSION = nextPatch(FALLBACK_RELEASE.version, -1);
+const NEWER_VERSION = nextPatch(FALLBACK_RELEASE.version, 1);
+
+function response(version = FALLBACK_RELEASE.version, {
+  size = FALLBACK_RELEASE.size,
+  digest = `sha256:${FALLBACK_RELEASE.checksum}`,
+  withChecksum = true,
+} = {}) {
+  const base = `https://github.com/arrry-07/chaoxing-journal/releases/download/v${version}`;
+  const apk = {
+    name: `chaoxing-journal-${version}.apk`,
+    size,
+    browser_download_url: `${base}/chaoxing-journal-${version}.apk`,
   };
+  if (digest !== null) apk.digest = digest;
+  const assets = [apk];
+  if (withChecksum) assets.push({ name: 'SHA256SUMS.txt', size: 93, browser_download_url: `${base}/SHA256SUMS.txt` });
+  return { draft: false, prerelease: false, tag_name: `v${version}`, assets };
 }
 
 function mockDocument() {
@@ -57,43 +62,58 @@ function mockDocument() {
   };
 }
 
-test('parses the real latest release asset and digest', () => {
+test('parses the validated fallback release asset and digest', () => {
   assert.deepEqual(parseGitHubRelease(response()), FALLBACK_RELEASE);
 });
 
 test('compares dotted versions numerically, including two-digit patches', () => {
   assert.equal(compareVersions('1.8.10', '1.8.09') > 0, true);
-  assert.equal(compareVersions('1.8.08', '1.8.08'), 0);
-  assert.ok(compareVersions('1.7.52', '1.8.08') < 0);
+  assert.equal(compareVersions(FALLBACK_RELEASE.version, FALLBACK_RELEASE.version), 0);
+  assert.ok(compareVersions('1.7.52', FALLBACK_RELEASE.version) < 0);
+  assert.ok(compareVersions(OLDER_VERSION, FALLBACK_RELEASE.version) < 0);
+  assert.ok(compareVersions(NEWER_VERSION, FALLBACK_RELEASE.version) > 0);
 });
 
 test('formats the actual byte count as MiB for the visitor-facing MB label', () => {
+  assert.equal(formatBytes(FALLBACK_RELEASE.size), '57.8 MB');
   assert.equal(formatBytes(59442054), '56.7 MB');
 });
 
 test('accepts a stable release without a checksum asset', () => {
-  const source = response();
-  source.assets = [source.assets[0]];
+  const source = response(NEWER_VERSION, { withChecksum: false });
   const result = parseGitHubRelease(source);
   assert.equal(result.checksumUrl, null);
   assert.equal(result.checksum, FALLBACK_RELEASE.checksum);
 });
 
 test('supports older stable releases without the GitHub digest field', () => {
-  const source = response();
-  delete source.assets[0].digest;
+  const source = response(FALLBACK_RELEASE.version, { digest: null });
   assert.equal(parseGitHubRelease(source).checksum, null);
+});
+
+test('accepts a newer stable release with its own digest', () => {
+  const digest = 'b'.repeat(64);
+  const result = parseGitHubRelease(response(NEWER_VERSION, { digest: `sha256:${digest}` }));
+  assert.equal(result.version, NEWER_VERSION);
+  assert.equal(result.checksum, digest);
+  assert.notEqual(result.checksum, FALLBACK_RELEASE.checksum);
 });
 
 for (const [name, mutate, expected] of [
   ['draft', (source) => { source.draft = true; }, 'invalid-release'],
   ['prerelease', (source) => { source.prerelease = true; }, 'invalid-release'],
+  ['older release', (source) => {
+    source.tag_name = `v${OLDER_VERSION}`;
+    source.assets[0].name = `chaoxing-journal-${OLDER_VERSION}.apk`;
+    source.assets[0].browser_download_url = `https://github.com/arrry-07/chaoxing-journal/releases/download/v${OLDER_VERSION}/chaoxing-journal-${OLDER_VERSION}.apk`;
+    source.assets[1].browser_download_url = `https://github.com/arrry-07/chaoxing-journal/releases/download/v${OLDER_VERSION}/SHA256SUMS.txt`;
+  }, 'stale-release'],
   ['legacy tag', (source) => { source.tag_name = 'v1.7.52'; }, 'stale-release'],
   ['non-semver tag', (source) => { source.tag_name = 'current'; }, 'invalid-version'],
   ['wrong APK name', (source) => { source.assets[0].name = 'unrelated.apk'; }, 'invalid-apk'],
-  ['external URL', (source) => { source.assets[0].browser_download_url = 'https://example.com/chaoxing-journal-1.8.08.apk'; }, 'invalid-apk'],
-  ['tag swap in URL', (source) => { source.assets[0].browser_download_url = 'https://github.com/arrry-07/chaoxing-journal/releases/download/v1.8.07/chaoxing-journal-1.8.08.apk'; }, 'invalid-apk'],
-  ['wrong repository', (source) => { source.assets[0].browser_download_url = 'https://github.com/example/repository/releases/download/v1.8.08/chaoxing-journal-1.8.08.apk'; }, 'invalid-apk'],
+  ['external URL', (source) => { source.assets[0].browser_download_url = `https://example.com/chaoxing-journal-${FALLBACK_RELEASE.version}.apk`; }, 'invalid-apk'],
+  ['tag swap in URL', (source) => { source.assets[0].browser_download_url = `https://github.com/arrry-07/chaoxing-journal/releases/download/v${OLDER_VERSION}/chaoxing-journal-${FALLBACK_RELEASE.version}.apk`; }, 'invalid-apk'],
+  ['wrong repository', (source) => { source.assets[0].browser_download_url = `https://github.com/example/repository/releases/download/v${FALLBACK_RELEASE.version}/chaoxing-journal-${FALLBACK_RELEASE.version}.apk`; }, 'invalid-apk'],
   ['invalid size', (source) => { source.assets[0].size = -1; }, 'invalid-apk'],
   ['invalid digest', (source) => { source.assets[0].digest = 'anything'; }, 'invalid-digest'],
   ['bad checksum URL', (source) => { source.assets[1].browser_download_url = 'https://example.com/SHA256SUMS.txt'; }],
@@ -121,13 +141,8 @@ test('fetches only the public latest release without credentials', async () => {
 });
 
 test('rejects a stable latest release older than the validated fallback', async () => {
-  const source = response();
-  source.tag_name = 'v0.9.00';
-  source.assets[0].name = 'chaoxing-journal-0.9.00.apk';
-  source.assets[0].browser_download_url = 'https://github.com/arrry-07/chaoxing-journal/releases/download/v0.9.00/chaoxing-journal-0.9.00.apk';
-  source.assets[1].browser_download_url = 'https://github.com/arrry-07/chaoxing-journal/releases/download/v0.9.00/SHA256SUMS.txt';
   await assert.rejects(() => fetchLatestRelease({
-    fetchImplementation: async () => ({ ok: true, json: async () => source }),
+    fetchImplementation: async () => ({ ok: true, json: async () => response(OLDER_VERSION) }),
   }), new Error('stale-release'));
 });
 
@@ -154,19 +169,18 @@ test('aborts a pending request when the page is unloading', async () => {
   await assert.rejects(() => pending, new Error('page-hidden'));
 });
 
-test('renders all links, versions, and checksum from the same release as plain text', () => {
+test('renders all links, versions, size and checksum from the same newer release as plain text', () => {
   const document = mockDocument();
-  const source = response();
-  source.tag_name = 'v1.8.09';
-  source.assets[0].name = 'chaoxing-journal-1.8.09.apk';
-  source.assets[0].digest = 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-  source.assets[0].browser_download_url = 'https://github.com/arrry-07/chaoxing-journal/releases/download/v1.8.09/chaoxing-journal-1.8.09.apk';
-  source.assets[1].browser_download_url = 'https://github.com/arrry-07/chaoxing-journal/releases/download/v1.8.09/SHA256SUMS.txt';
+  const source = response(NEWER_VERSION, { digest: `sha256:${'a'.repeat(64)}` });
   applyRelease(document, { release: parseGitHubRelease(source), isFallback: false });
-  assert.equal(document.groups['[data-release-version]'][0].textContent, '1.8.09');
+  assert.equal(document.groups['[data-release-version]'][0].textContent, NEWER_VERSION);
+  assert.equal(document.groups['[data-release-size]'][0].textContent, '57.8 MB');
   assert.equal(document.groups['[data-download]'][1].href, source.assets[0].browser_download_url);
+  assert.equal(document.groups['[data-release-url]'][0].href, `https://github.com/arrry-07/chaoxing-journal/releases/tag/v${NEWER_VERSION}`);
+  assert.equal(document.groups['[data-release-status]'][0].textContent, `GitHub 最新正式版 · ${NEWER_VERSION}`);
+  assert.equal(document.checksumLink.href, source.assets[1].browser_download_url);
   assert.equal(document.checksumValue.textContent, 'a'.repeat(64));
-  assert.match(document.checksumCaption.textContent, /1\.8\.09/);
+  assert.match(document.checksumCaption.textContent, new RegExp(NEWER_VERSION.replaceAll('.', '\\.')));
   assert.equal(document.groups['[data-release-version]'][0].innerHTML, undefined);
 });
 
@@ -179,14 +193,10 @@ test('fallback retains a working APK and explicitly reports its status', () => {
 
 test('does not show a fallback digest for a new release without a valid checksum', () => {
   const document = mockDocument();
-  const source = response();
-  source.tag_name = 'v1.8.09';
-  source.assets[0].name = 'chaoxing-journal-1.8.09.apk';
-  source.assets[0].browser_download_url = 'https://github.com/arrry-07/chaoxing-journal/releases/download/v1.8.09/chaoxing-journal-1.8.09.apk';
-  delete source.assets[0].digest;
-  source.assets = [source.assets[0]];
+  const source = response(NEWER_VERSION, { digest: null, withChecksum: false });
   applyRelease(document, { release: parseGitHubRelease(source), isFallback: false });
   assert.equal(document.checksumValue.hidden, true);
   assert.equal(document.checksumLink.hidden, true);
   assert.doesNotMatch(document.checksumCaption.textContent, new RegExp(FALLBACK_RELEASE.checksum));
+  assert.match(document.checksumCaption.textContent, new RegExp(NEWER_VERSION.replaceAll('.', '\\.')));
 });
