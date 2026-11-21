@@ -25,7 +25,7 @@
 
 当 `api.github.com` 超时（6 秒）、限流或不可达时，`resolveLatestRelease` 会尝试读取同源 `release.json`（`cache: 'no-store'`）并通过 `parseSiteReleaseManifest` 校验字段与来源；仅当 `release.json` 版本高于页面内嵌静态版本时无缝升级展示（用于标签页长驻或旧缓存命中场景），否则统一由 `scripts/site.js` 回退至内嵌版本。页面驻留期间还会结合可见性切换（60 秒节流）、网络恢复 `online`（5 秒节流）与可见态 5 分钟静默轮询刷新版本状态；版本号、摘要与可用性未变化时保留用户当前复制成功提示。
 
-当前回退为 `1.8.22`，静态状态写作「已核验下载版本」，API 不可达且同源清单未领先时显示「已核验回退版本 · 暂时无法读取最新发布」，关闭 JavaScript 时同样成立；不会把旧 SHA-256 用于新版。未来新版若缺少同版本校验信息，下载仍可用，但页面不显式展示陈旧校验值。
+当前回退为 `1.8.23`，静态状态写作「已核验下载版本」，API 不可达且同源清单未领先时显示「已核验回退版本 · 暂时无法读取最新发布」，关闭 JavaScript 时同样成立；不会把旧 SHA-256 用于新版。未来新版若缺少同版本校验信息，下载仍可用，但页面不显式展示陈旧校验值。
 
 **自动核验与同步（推荐）**：仓库已配置 `.github/workflows/sync-release.yml`（每 30 分钟巡检，亦支持 `app-release-published` `repository_dispatch` 与手动 `workflow_dispatch`）及本地命令 `npm run sync`（`node scripts/sync-release.js`，支持 `--dry-run`）。发现新正式版时，脚本会真实下载完整 APK 与同 Tag `SHA256SUMS.txt`，在确认「实际字节数 + 本地重算 SHA-256 + GitHub API `digest` + `SHA256SUMS.txt` 对应文件名行」四方完全一致后，才同步更新：
 

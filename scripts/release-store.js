@@ -2,14 +2,14 @@ export const APP_REPOSITORY = 'https://github.com/arrry-07/chaoxing-journal';
 export const RELEASE_API = 'https://api.github.com/repos/arrry-07/chaoxing-journal/releases/latest';
 
 export const FALLBACK_RELEASE = Object.freeze({
-  version: '1.8.22',
-  tag: 'v1.8.22',
-  apkName: 'chaoxing-journal-1.8.22.apk',
-  downloadUrl: `${APP_REPOSITORY}/releases/download/v1.8.22/chaoxing-journal-1.8.22.apk`,
-  releaseUrl: `${APP_REPOSITORY}/releases/tag/v1.8.22`,
-  checksumUrl: `${APP_REPOSITORY}/releases/download/v1.8.22/SHA256SUMS.txt`,
-  checksum: '6bf09ee2c18982c2ab5458b2180d2c442221d4dce50d88b049cd07bd3de386db',
-  size: 60777502,
+  version: '1.8.23',
+  tag: 'v1.8.23',
+  apkName: 'chaoxing-journal-1.8.23.apk',
+  downloadUrl: `${APP_REPOSITORY}/releases/download/v1.8.23/chaoxing-journal-1.8.23.apk`,
+  releaseUrl: `${APP_REPOSITORY}/releases/tag/v1.8.23`,
+  checksumUrl: `${APP_REPOSITORY}/releases/download/v1.8.23/SHA256SUMS.txt`,
+  checksum: 'a6a7dbdab7941021449d3be8656ae24f5c1da0677569ab08caa91fd8d373ce02',
+  size: 61057710,
 });
 
 const MIN_APK_BYTES = 1048576;
