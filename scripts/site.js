@@ -2,6 +2,8 @@ import { applyRelease, FALLBACK_RELEASE, fetchLatestRelease } from './release-st
 
 const menuButton = document.querySelector('.menu-button');
 const navigation = document.querySelector('.main-nav');
+const navigationLinks = [...document.querySelectorAll('.main-nav a[href^="#"]')];
+const trackedSections = navigationLinks.map((link) => document.querySelector(link.getAttribute('href')));
 
 function setMenu(open) {
   if (!menuButton || !navigation) return;
@@ -25,7 +27,58 @@ document.addEventListener('keydown', (event) => {
 const desktopQuery = window.matchMedia('(min-width: 901px)');
 desktopQuery.addEventListener('change', (event) => { if (event.matches) setMenu(false); });
 
+function markSection(id) {
+  navigationLinks.forEach((link) => {
+    if (link.getAttribute('href') === `#${id}`) link.setAttribute('aria-current', 'location');
+    else link.removeAttribute('aria-current');
+  });
+}
+
+if ('IntersectionObserver' in window) {
+  const visibleSections = new Map();
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) visibleSections.set(entry.target.id, entry.boundingClientRect.top);
+      else visibleSections.delete(entry.target.id);
+    });
+    const current = [...visibleSections].sort((first, second) => Math.abs(first[1] - 100) - Math.abs(second[1] - 100))[0];
+    if (current) markSection(current[0]);
+    else if (window.scrollY < 250) markSection('');
+  }, { rootMargin: '-85px 0px -45% 0px', threshold: 0 });
+  trackedSections.forEach((section) => { if (section) observer.observe(section); });
+}
+navigationLinks.forEach((link) => link.addEventListener('click', () => markSection(link.getAttribute('href').slice(1))));
+
 const tabs = [...document.querySelectorAll('[role="tab"]')];
+const previewContent = {
+  home: {
+    title: '课业时间轴，把当前课业放在眼前。',
+    dialogTitle: '课业时间轴',
+    description: '按截止或开考时间整理当前课业；已完成记录留在本地记录。',
+    src: 'assets/images/home.png',
+    width: 360,
+    alt: '完整课业时间轴界面，合成样例数据',
+  },
+  statistics: {
+    title: '完成率统计，看清课业进度。',
+    dialogTitle: '完成率统计',
+    description: '区分已完成、待完成、已逾期与提交未知；重要结果仍以学习通为准。',
+    src: 'assets/images/statistics.png',
+    width: 393,
+    alt: '完整课业统计界面，合成样例数据',
+  },
+  profile: {
+    title: '我的手账，管理自己的记录。',
+    dialogTitle: '我的手账',
+    description: '管理课程、提醒、同步和本地记录，并使用加密备份与恢复。',
+    src: 'assets/images/profile.png',
+    width: 360,
+    alt: '完整我的手账界面，合成样例数据',
+  },
+};
+const previewTitle = document.querySelector('[data-preview-title]');
+const previewDescription = document.querySelector('[data-preview-description]');
+
 function activateTab(tab, moveFocus = false) {
   tabs.forEach((item) => {
     const active = item === tab;
@@ -34,6 +87,11 @@ function activateTab(tab, moveFocus = false) {
     const panel = document.getElementById(item.getAttribute('aria-controls'));
     if (panel) panel.hidden = !active;
   });
+  const content = previewContent[tab.id.replace('tab-', '')];
+  if (content) {
+    previewTitle.textContent = content.title;
+    previewDescription.textContent = content.description;
+  }
   if (moveFocus) tab.focus();
 }
 tabs.forEach((tab, index) => {
@@ -48,6 +106,88 @@ tabs.forEach((tab, index) => {
       event.preventDefault();
       activateTab(next, true);
     }
+  });
+});
+
+document.querySelectorAll('[data-enhanced]').forEach((element) => { element.hidden = false; });
+const screenshotDialog = document.getElementById('screenshot-dialog');
+const dialogTitle = document.getElementById('dialog-title');
+const dialogDescription = document.getElementById('dialog-description');
+const dialogImage = screenshotDialog?.querySelector('.dialog-screenshot');
+const pageContent = [...document.body.children].filter((element) => element !== screenshotDialog && !['SCRIPT', 'NOSCRIPT'].includes(element.tagName));
+let previewTrigger;
+
+function openPreview(id, trigger) {
+  const content = previewContent[id];
+  if (!content || !screenshotDialog) return;
+  previewTrigger = trigger;
+  dialogTitle.textContent = content.dialogTitle;
+  dialogDescription.textContent = content.description;
+  dialogImage.src = content.src;
+  dialogImage.width = content.width;
+  dialogImage.alt = content.alt;
+  pageContent.forEach((element) => { element.inert = true; });
+  document.body.classList.add('has-dialog');
+  screenshotDialog.showModal();
+  screenshotDialog.querySelector('.dialog-close').focus();
+}
+
+function closePreview() {
+  screenshotDialog?.close();
+  pageContent.forEach((element) => { element.inert = false; });
+  document.body.classList.remove('has-dialog');
+  previewTrigger?.focus();
+}
+
+document.querySelectorAll('[data-preview]').forEach((button) => {
+  button.addEventListener('click', () => openPreview(button.dataset.preview, button));
+});
+screenshotDialog?.querySelector('.dialog-close').addEventListener('click', closePreview);
+screenshotDialog?.addEventListener('cancel', (event) => {
+  event.preventDefault();
+  closePreview();
+});
+screenshotDialog?.addEventListener('click', (event) => {
+  if (event.target !== screenshotDialog) return;
+  const bounds = screenshotDialog.getBoundingClientRect();
+  if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) closePreview();
+});
+screenshotDialog?.addEventListener('close', () => {
+  pageContent.forEach((element) => { element.inert = false; });
+  document.body.classList.remove('has-dialog');
+});
+
+const copyButton = document.querySelector('[data-copy-checksum]');
+const copyStatus = document.querySelector('[data-copy-status]');
+function fallbackCopy() {
+  const checksum = document.querySelector('[data-checksum-value]');
+  if (!checksum || checksum.hidden || !checksum.textContent.trim()) return;
+  const selection = window.getSelection();
+  const range = document.createRange();
+  range.selectNodeContents(checksum);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  copyStatus.textContent = '已选中摘要，请长按或使用系统复制。';
+}
+copyButton?.addEventListener('click', async () => {
+  const checksum = document.querySelector('[data-checksum-value]')?.textContent.trim();
+  if (!checksum || copyButton.disabled) return;
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error('clipboard-unavailable');
+    await navigator.clipboard.writeText(checksum);
+    copyStatus.textContent = 'SHA-256 已复制。请与同版本校验文件核对。';
+  } catch {
+    fallbackCopy();
+  }
+});
+
+let downloadFeedbackTimeout;
+document.querySelectorAll('[data-download]').forEach((link) => {
+  link.addEventListener('click', () => {
+    const feedback = document.querySelector('[data-download-feedback]');
+    clearTimeout(downloadFeedbackTimeout);
+    feedback.textContent = '下载已开始。完成后请在浏览器下载记录中打开 APK 安装。';
+    downloadFeedbackTimeout = setTimeout(() => { feedback.textContent = ''; }, 12000);
   });
 });
 

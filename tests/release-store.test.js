@@ -43,20 +43,28 @@ function mockDocument() {
     '[data-release-size]': [{ textContent: '' }],
     '[data-release-url]': [{ href: FALLBACK_RELEASE.releaseUrl }],
     '[data-release-status]': [{ textContent: '' }],
+    '[data-apk-name]': [{ textContent: '' }],
+    '[data-apk-label]': [{ textContent: '' }],
   };
   for (const [selector, value] of Object.entries(groupsSelector)) groups[selector] = value;
   const checksumLink = { href: FALLBACK_RELEASE.checksumUrl, hidden: false };
   const checksumValue = { textContent: FALLBACK_RELEASE.checksum, hidden: false };
   const checksumCaption = { textContent: '' };
+  const copyButton = { disabled: false };
+  const copyStatus = { textContent: '' };
   return {
     groups,
     checksumLink,
     checksumValue,
     checksumCaption,
+    copyButton,
+    copyStatus,
     querySelectorAll(selector) { return selector === '[data-checksum-url]' ? [checksumLink] : groups[selector] ?? []; },
     querySelector(selector) {
       if (selector === '[data-checksum-value]') return checksumValue;
       if (selector === '[data-checksum-caption]') return checksumCaption;
+      if (selector === '[data-copy-checksum]') return copyButton;
+      if (selector === '[data-copy-status]') return copyStatus;
       return null;
     },
   };
@@ -75,7 +83,7 @@ test('compares dotted versions numerically, including two-digit patches', () => 
 });
 
 test('formats the actual byte count as MiB for the visitor-facing MB label', () => {
-  assert.equal(formatBytes(FALLBACK_RELEASE.size), '57.8 MB');
+  assert.equal(formatBytes(FALLBACK_RELEASE.size), '58.0 MB');
   assert.equal(formatBytes(59442054), '56.7 MB');
 });
 
@@ -174,13 +182,17 @@ test('renders all links, versions, size and checksum from the same newer release
   const source = response(NEWER_VERSION, { digest: `sha256:${'a'.repeat(64)}` });
   applyRelease(document, { release: parseGitHubRelease(source), isFallback: false });
   assert.equal(document.groups['[data-release-version]'][0].textContent, NEWER_VERSION);
-  assert.equal(document.groups['[data-release-size]'][0].textContent, '57.8 MB');
+  assert.equal(document.groups['[data-release-size]'][0].textContent, '58.0 MB');
+  assert.equal(document.groups['[data-apk-name]'][0].textContent, `chaoxing-journal-${NEWER_VERSION}.apk`);
+  assert.equal(document.groups['[data-apk-label]'][0].textContent, `下载 chaoxing-journal-${NEWER_VERSION}.apk`);
   assert.equal(document.groups['[data-download]'][1].href, source.assets[0].browser_download_url);
   assert.equal(document.groups['[data-release-url]'][0].href, `https://github.com/arrry-07/chaoxing-journal/releases/tag/v${NEWER_VERSION}`);
   assert.equal(document.groups['[data-release-status]'][0].textContent, `GitHub 最新正式版 · ${NEWER_VERSION}`);
   assert.equal(document.checksumLink.href, source.assets[1].browser_download_url);
   assert.equal(document.checksumValue.textContent, 'a'.repeat(64));
   assert.match(document.checksumCaption.textContent, new RegExp(NEWER_VERSION.replaceAll('.', '\\.')));
+  assert.equal(document.copyButton.disabled, false);
+  assert.equal(document.copyStatus.textContent, '');
   assert.equal(document.groups['[data-release-version]'][0].innerHTML, undefined);
 });
 
@@ -199,4 +211,14 @@ test('does not show a fallback digest for a new release without a valid checksum
   assert.equal(document.checksumLink.hidden, true);
   assert.doesNotMatch(document.checksumCaption.textContent, new RegExp(FALLBACK_RELEASE.checksum));
   assert.match(document.checksumCaption.textContent, new RegExp(NEWER_VERSION.replaceAll('.', '\\.')));
+  assert.equal(document.copyButton.disabled, true);
+  assert.equal(document.copyStatus.textContent, '当前版本未提供可复制摘要。');
+});
+
+test('restores checksum copying when a valid fallback is available again', () => {
+  const document = mockDocument();
+  document.copyButton.disabled = true;
+  applyRelease(document, { release: FALLBACK_RELEASE, isFallback: true });
+  assert.equal(document.copyButton.disabled, false);
+  assert.equal(document.copyStatus.textContent, '');
 });
