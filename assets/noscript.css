@@ -1,0 +1,12 @@
+[data-enhanced] { display: none !important; }
+.feature-grid:not(.feature-grid-compact) { display: grid !important; }
+.feature-grid-compact { display: none !important; }
+.editorial-copy { display: block !important; }
+.editorial-copy blockquote { display: block !important; }
+.gallery-phone[hidden] { display: block !important; }
+.gallery-phone { margin-bottom: 24px; }
+.gallery-display { flex-direction: column; gap: 24px; padding-bottom: 30px; }
+.gallery-phone img { max-height: none !important; }
+.screenshot-window { max-height: none !important; }
+.screenshot-window::after { display: none; }
+.preview-source { display: inline-flex !important; }

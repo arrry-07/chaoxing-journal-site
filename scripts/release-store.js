@@ -2,14 +2,14 @@ export const APP_REPOSITORY = 'https://github.com/arrry-07/chaoxing-journal';
 export const RELEASE_API = 'https://api.github.com/repos/arrry-07/chaoxing-journal/releases/latest';
 
 export const FALLBACK_RELEASE = Object.freeze({
-  version: '1.8.16',
-  tag: 'v1.8.16',
-  apkName: 'chaoxing-journal-1.8.16.apk',
-  downloadUrl: `${APP_REPOSITORY}/releases/download/v1.8.16/chaoxing-journal-1.8.16.apk`,
-  releaseUrl: `${APP_REPOSITORY}/releases/tag/v1.8.16`,
-  checksumUrl: `${APP_REPOSITORY}/releases/download/v1.8.16/SHA256SUMS.txt`,
-  checksum: '53913c82688e9dd87b10958599d3dcdd02f1352ad80481208de4741227d34809',
-  size: 60646254,
+  version: '1.8.21',
+  tag: 'v1.8.21',
+  apkName: 'chaoxing-journal-1.8.21.apk',
+  downloadUrl: `${APP_REPOSITORY}/releases/download/v1.8.21/chaoxing-journal-1.8.21.apk`,
+  releaseUrl: `${APP_REPOSITORY}/releases/tag/v1.8.21`,
+  checksumUrl: `${APP_REPOSITORY}/releases/download/v1.8.21/SHA256SUMS.txt`,
+  checksum: 'd7a498451c1a656a1de73d92e2c3be3ffbf41f4a3ed06647455b548d437087e0',
+  size: 60777470,
 });
 
 function parseVersionTag(tag) {
@@ -106,6 +106,8 @@ export function applyRelease(document, result) {
   document.querySelectorAll('[data-release-version]').forEach((element) => { element.textContent = release.version; });
   document.querySelectorAll('[data-release-size]').forEach((element) => { element.textContent = formatBytes(release.size); });
   document.querySelectorAll('[data-release-url]').forEach((link) => { link.href = release.releaseUrl; });
+  document.querySelectorAll('[data-apk-name]').forEach((element) => { element.textContent = release.apkName; });
+  document.querySelectorAll('[data-apk-label]').forEach((element) => { element.textContent = `下载 ${release.apkName}`; });
   document.querySelectorAll('[data-release-status]').forEach((element) => {
     element.textContent = isFallback ? '已核验回退版本 · 暂时无法读取最新发布' : `GitHub 最新正式版 · ${release.version}`;
   });
@@ -127,6 +129,10 @@ export function applyRelease(document, result) {
       checksumValue.hidden = true;
       checksumCaption.textContent = `${release.version} 未提供可核验的在线摘要，请使用同版本发布页的校验说明。`;
     }
+    const copyButton = document.querySelector('[data-copy-checksum]');
+    const copyStatus = document.querySelector('[data-copy-status]');
+    if (copyButton) copyButton.disabled = !release.checksum;
+    if (copyStatus) copyStatus.textContent = release.checksum ? '' : '当前版本未提供可复制摘要。';
   }
   return result;
 }

@@ -8,6 +8,7 @@ const deployable = [
   'robots.txt',
   'sitemap.xml',
   'assets/site.css',
+  'assets/noscript.css',
   'assets/images/app-launcher.png',
   'assets/images/cat-app-icon.webp',
   'assets/images/home.png',

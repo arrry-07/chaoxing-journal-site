@@ -60,6 +60,18 @@ assert.ok(css.includes('@media (max-width: 480px)'));
 assert.ok(css.includes('@media (prefers-reduced-motion: reduce)'));
 assert.ok(css.includes(':focus-visible'));
 assert.ok(css.includes('[hidden]'));
+assert.ok(html.includes('id="screenshot-dialog"'));
+assert.ok(html.includes('aria-labelledby="dialog-title"'));
+assert.ok(html.includes('已安装用户直接覆盖安装，勿先卸载。'));
+assert.ok(html.includes('data-copy-checksum'));
+assert.ok(html.includes('data-download-feedback'));
+assert.ok(html.includes('assets/noscript.css'));
+assert.ok(css.includes('body.has-dialog'));
+assert.ok(css.includes('--soft-ink: #626d5e'));
+for (const tab of [...html.matchAll(/<button[^>]+role="tab"[^>]+>/g)].map((match) => match[0])) {
+  const panelId = /aria-controls="([^"]+)"/.exec(tab)?.[1];
+  assert.ok(ids.includes(panelId), `Tab target must exist: ${panelId}`);
+}
 assert.ok(/^wOF2/.test(await readFile(resolve(root, 'assets/font/LXGWWenKaiScreen.woff2'), 'latin1')), 'The embedded web font must be WOFF2.');
 
 const apiUrl = 'https://api.github.com/repos/arrry-07/chaoxing-journal/releases/latest';
