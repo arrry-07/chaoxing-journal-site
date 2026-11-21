@@ -18,6 +18,7 @@ const deployable = [
   'assets/font/OFL-WenKai.txt',
   'scripts/site.js',
   'scripts/release-store.js',
+  'release.json',
 ];
 await rm(output, { recursive: true, force: true });
 await mkdir(output, { recursive: true });

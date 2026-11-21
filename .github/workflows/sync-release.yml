@@ -1,0 +1,89 @@
+name: Sync verified app release and publish Pages
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  repository_dispatch:
+    types: [app-release-published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    outputs:
+      updated: ${{ steps.detect.outputs.updated }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Sync verified release fallback
+        env:
+          CHECK_RELEASE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/sync-release.js
+      - name: Detect synced release changes
+        id: detect
+        run: |
+          if git diff --quiet -- scripts/release-store.js release.json index.html README.md; then
+            echo "updated=false" >> "$GITHUB_OUTPUT"
+          else
+            VERSION="$(node -e "import { readFileSync } from 'node:fs'; console.log(JSON.parse(readFileSync('release.json', 'utf8')).version);")"
+            echo "updated=true" >> "$GITHUB_OUTPUT"
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Verify synced website
+        if: steps.detect.outputs.updated == 'true'
+        env:
+          CHECK_RELEASE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npm test
+          node --check scripts/site.js
+          node --check scripts/release-store.js
+          node --check scripts/sync-release.js
+          node scripts/check-site.js
+          node scripts/package-site.js
+          git diff --check
+      - name: Commit and push synced release
+        if: steps.detect.outputs.updated == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/release-store.js release.json index.html README.md
+          git commit -m "chore(release): sync verified fallback to v${{ steps.detect.outputs.version }}"
+          git pull --rebase origin main
+          node scripts/package-site.js
+          git push origin HEAD:main
+      - name: Prepare static Pages artifact
+        if: steps.detect.outputs.updated == 'true'
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: public
+
+  deploy:
+    needs: sync
+    if: needs.sync.outputs.updated == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

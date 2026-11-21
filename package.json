@@ -10,6 +10,7 @@
   "scripts": {
     "test": "node --test tests/*.test.js",
     "check": "npm run test && node scripts/check-site.js",
+    "sync": "node scripts/sync-release.js",
     "serve": "node scripts/serve.js"
   }
 }

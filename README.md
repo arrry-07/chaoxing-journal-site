@@ -16,23 +16,25 @@
 
 `scripts/release-store.js` 是唯一版本与下载状态入口。页面初始 HTML 始终保留一个已核验的真实 APK 链接，禁用 JavaScript 或 GitHub API 暂不可达时仍可下载。
 
-正常加载时，页面从 `https://api.github.com/repos/arrry-07/chaoxing-journal/releases/latest` 读取最新正式版，验证：
+正常加载时，页面由 `resolveLatestRelease` 优先从 `https://api.github.com/repos/arrry-07/chaoxing-journal/releases/latest` 读取最新正式版，验证：
 
 - 非草稿、非预发布；
 - `vX.Y.Z` Tag 与 `chaoxing-journal-X.Y.Z.apk` 文件名对应；
 - APK 与校验文件均位于应用仓库的同版本 GitHub Release 下载地址；
 - APK 大小合理，API 提供的 `sha256:` 摘要格式合法。
 
-6 秒超时、限流、旧版本、资源缺失或异常 URL 均由 `scripts/site.js` 显示核验回退版本。当前回退为 `1.8.21`，静态状态写作「已核验下载版本」，关闭 JavaScript 时同样成立；不会把旧 SHA-256 用于新版。未来新版若缺少同版本校验信息，下载仍可用，但页面不显式展示陈旧校验值。
+当 `api.github.com` 超时（6 秒）、限流或不可达时，`resolveLatestRelease` 会尝试读取同源 `release.json`（`cache: 'no-store'`）并通过 `parseSiteReleaseManifest` 校验字段与来源；仅当 `release.json` 版本高于页面内嵌静态版本时无缝升级展示（用于标签页长驻或旧缓存命中场景），否则统一由 `scripts/site.js` 回退至内嵌版本。页面驻留期间还会结合可见性切换（60 秒节流）、网络恢复 `online`（5 秒节流）与可见态 5 分钟静默轮询刷新版本状态；版本号、摘要与可用性未变化时保留用户当前复制成功提示。
 
-**应用每发布一个正式版后**，先匿名读取应用仓库 `releases/latest`，确认它是公开正式 Release，并完整下载一次 APK，对照 GitHub 资产大小、`digest` 和同 Tag `SHA256SUMS.txt` 中对应文件名的那一行。通过后再同步更新：
+当前回退为 `1.8.22`，静态状态写作「已核验下载版本」，API 不可达且同源清单未领先时显示「已核验回退版本 · 暂时无法读取最新发布」，关闭 JavaScript 时同样成立；不会把旧 SHA-256 用于新版。未来新版若缺少同版本校验信息，下载仍可用，但页面不显式展示陈旧校验值。
 
-- `scripts/release-store.js` 中的版本、Tag、APK 名称、下载地址、发布页、校验文件地址、字节数与 SHA-256；
+**自动核验与同步（推荐）**：仓库已配置 `.github/workflows/sync-release.yml`（每 30 分钟巡检，亦支持 `app-release-published` `repository_dispatch` 与手动 `workflow_dispatch`）及本地命令 `npm run sync`（`node scripts/sync-release.js`，支持 `--dry-run`）。发现新正式版时，脚本会真实下载完整 APK 与同 Tag `SHA256SUMS.txt`，在确认「实际字节数 + 本地重算 SHA-256 + GitHub API `digest` + `SHA256SUMS.txt` 对应文件名行」四方完全一致后，才同步更新：
+
+- `scripts/release-store.js` 中的 `FALLBACK_RELEASE`（版本、Tag、APK 名称、下载地址、发布页、校验文件地址、字节数与 SHA-256）；
+- 根目录同源清单 `release.json`；
 - `index.html` 中全部下载按钮、版本、大小、发布页、校验文件链接、摘要与无脚本状态；
-- `tests/release-store.test.js` 的同版、较旧版及较新版样本；
-- `README.md` 中的回退版本说明。
+- `README.md` 中的当前回退版本号。
 
-更新后运行 `npm run check`、`node scripts/package-site.js` 和 `git diff --check`。`scripts/check-site.js` 会逐一校验所有 `data-download`、版本、大小、发布页、校验地址和摘要，避免只改了一个按钮仍然通过。浏览器脚本必须把真实回退 APK 下载放在强制 API 503 的场景里，再按实际文件名、字节数与 SHA-256 断言。
+同步脚本通过后由工作流运行全量校验并自动提交推送到 `main`，同时直接打包并发布最新 GitHub Pages 产物。若需手动更新 `tests/release-store.test.js` 等测试文件可额外补充；`tests/release-store.test.js` 的字节断言已动态跟随 `FALLBACK_RELEASE.size`。更新后运行 `npm run check`、`node scripts/package-site.js` 和 `git diff --check`。`scripts/check-site.js` 会逐一校验 `release.json` 一致性以及所有 `data-download`、版本、大小、发布页、校验地址和摘要，避免只改了一个按钮仍然通过。浏览器脚本同时覆盖强制 API 503 下载真实回退 APK（按实际文件名、字节数与 SHA-256 断言）以及 API 503 时从更高级 `release.json` 无缝升级的场景。
 
 ## 本地验证
 
@@ -42,6 +44,8 @@
 npm test
 node --check scripts/site.js
 node --check scripts/release-store.js
+node --check scripts/sync-release.js
+node scripts/sync-release.js --dry-run
 node scripts/check-site.js
 node scripts/package-site.js
 npm run serve
@@ -49,11 +53,11 @@ npm run serve
 
 打开 `http://127.0.0.1:4173/`。浏览器需支持原生 ES Modules；请通过本地 HTTP 服务预览，不以 `file://` 作为模块正常加载的验收环境。
 
-`scripts/check-site.js` 验证所有发布文件、相对链接、锚点、截图、WOFF2 字体、基础无障碍属性和线上 Release 契约。测试使用固定数据，不发送账号或请求凭据；浏览器验收另外检查正常 API、异常回退、禁用 JavaScript、手机布局、键盘操作与真实 APK 下载。CI 在官方 Actions 中使用自动注入的只读 `GITHUB_TOKEN` 避免 GitHub 匿名接口限流，令牌不进入网页、打包目录或日志；本地检查不使用该变量。
+`scripts/check-site.js` 验证所有发布文件（含 `release.json` 与 `FALLBACK_RELEASE` 一致性）、相对链接、锚点、截图、WOFF2 字体、基础无障碍属性和线上 Release 契约。测试使用固定数据，不发送账号或请求凭据；浏览器验收另外检查正常 API、异常回退、同源 `release.json` 兜底升级、禁用 JavaScript、手机布局、键盘操作与真实 APK 下载。CI 在官方 Actions 中使用自动注入的只读 `GITHUB_TOKEN` 避免 GitHub 匿名接口限流，令牌不进入网页、打包目录或日志；本地检查不使用该变量。
 
 有可选 Playwright 环境时，可在启动预览后执行 `node scripts/browser-check.mjs`。它默认使用本机 Chrome；默认 URL 为 `http://127.0.0.1:4173/`，可通过 `SITE_QA_URL` 验证 Pages 项目路径；报告及下载包写入忽略的 `output/playwright/`。该脚本不属于网站运行或 Pages 发布依赖。
 
-`scripts/package-site.js` 将明确允许的网页、样式、图片、字体与两个运行模块写入忽略的 `public/`，作为 Pages 的唯一打包输入。完整 `LICENSE` 与 `OFL-WenKai.txt` 保留在源码仓库，静态产物中同时携带字体许可；发布网站通过应用仓库和字体来源链接提供相应许可说明。
+`scripts/package-site.js` 将明确允许的网页、样式、图片、字体、两个浏览器运行模块与 `release.json`（共 16 项白名单条目）写入忽略的 `public/`，作为 Pages 的唯一打包输入；`scripts/sync-release.js` 等维护脚本不进入 `public/`。完整 `LICENSE` 与 `OFL-WenKai.txt` 保留在源码仓库，静态产物中同时携带字体许可；发布网站通过应用仓库和字体来源链接提供相应许可说明。
 
 应用指南含历史版本说明，当前网站只使用 API 接受的 `vX.Y.Z` 正式包命名方案；应用约定修改时，下载校验需同步保持与实际发布一致。
 

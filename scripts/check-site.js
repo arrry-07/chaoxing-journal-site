@@ -8,8 +8,10 @@ import { FALLBACK_RELEASE, formatBytes, parseGitHubRelease } from './release-sto
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const html = await readFile(resolve(root, 'index.html'), 'utf8');
 const css = await readFile(resolve(root, 'assets/site.css'), 'utf8');
-const files = ['index.html', '404.html', 'assets/site.css', 'scripts/site.js', 'scripts/release-store.js', 'assets/font/LXGWWenKaiScreen.woff2', 'assets/font/OFL-WenKai.txt', 'assets/images/home.png', 'assets/images/statistics.png', 'assets/images/profile.png', 'assets/images/cat-app-icon.webp', 'assets/images/app-launcher.png', '.nojekyll', '.github/workflows/pages.yml'];
+const files = ['index.html', '404.html', 'assets/site.css', 'scripts/site.js', 'scripts/release-store.js', 'release.json', 'assets/font/LXGWWenKaiScreen.woff2', 'assets/font/OFL-WenKai.txt', 'assets/images/home.png', 'assets/images/statistics.png', 'assets/images/profile.png', 'assets/images/cat-app-icon.webp', 'assets/images/app-launcher.png', '.nojekyll', '.github/workflows/pages.yml'];
 files.forEach((file) => assert.ok(existsSync(resolve(root, file)), `Missing deployable file: ${file}`));
+const siteManifest = JSON.parse(await readFile(resolve(root, 'release.json'), 'utf8'));
+assert.deepEqual(siteManifest, FALLBACK_RELEASE, 'release.json must match FALLBACK_RELEASE');
 
 const localReferences = [...html.matchAll(/(?:src|href)="([^"#]+)"/g)].map((match) => match[1]).filter((url) => !/^[a-z]+:/i.test(url) && url !== '/');
 for (const reference of new Set(localReferences.map((url) => url.split('?')[0]))) {
@@ -56,6 +58,7 @@ assert.ok(html.includes('href="#main"'));
 assert.ok(html.includes('aria-hidden="true"'));
 assert.ok(!html.includes('style='), 'Use the site stylesheet and no unsafe-inline CSP exception for the homepage.');
 assert.ok(!html.includes('target="_blank"'), 'Download and external links must remain in the visitor\'s current tab.');
+assert.ok(html.includes("connect-src 'self' https://api.github.com;"), 'CSP connect-src must only allow self and https://api.github.com');
 assert.ok(css.includes('@media (max-width: 480px)'));
 assert.ok(css.includes('@media (prefers-reduced-motion: reduce)'));
 assert.ok(css.includes(':focus-visible'));

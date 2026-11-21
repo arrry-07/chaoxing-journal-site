@@ -171,10 +171,11 @@ try {
     'https://github.com/arrry-07/chaoxing-journal/blob/main/docs/guides/%E9%9A%90%E7%A7%81%E4%B8%8E%E5%AE%89%E5%85%A8.md',
   ]) {
     let response;
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
       response = await page.request.get(url, { maxRedirects: 5 });
       if (response.ok()) break;
       console.log(`External link retry ${attempt + 1}: ${url} (${response.status()})`);
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 3000 * (attempt + 1)));
     }
     assert.equal(response.ok(), true, url);
   }
@@ -276,6 +277,34 @@ try {
   assert.doesNotMatch(await newerPage.locator('[data-checksum-caption]').textContent(), new RegExp(FALLBACK_RELEASE.checksum));
   pass('newer release without a digest never reuses the fallback checksum');
   await newerContext.close();
+
+  const manifestChecksum = 'c'.repeat(64);
+  const manifestContext = await browser.newContext();
+  const manifestPage = await manifestContext.newPage();
+  await manifestPage.route(RELEASE_API, (route) => route.fulfill({ status: 503, contentType: 'application/json', body: '{"message":"test outage"}' }));
+  await manifestPage.route('**/release.json', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      version: NEWER_VERSION,
+      tag: `v${NEWER_VERSION}`,
+      apkName: `chaoxing-journal-${NEWER_VERSION}.apk`,
+      downloadUrl: `https://github.com/arrry-07/chaoxing-journal/releases/download/v${NEWER_VERSION}/chaoxing-journal-${NEWER_VERSION}.apk`,
+      releaseUrl: `https://github.com/arrry-07/chaoxing-journal/releases/tag/v${NEWER_VERSION}`,
+      checksumUrl: `https://github.com/arrry-07/chaoxing-journal/releases/download/v${NEWER_VERSION}/SHA256SUMS.txt`,
+      checksum: manifestChecksum,
+      size: FALLBACK_RELEASE.size,
+    }),
+  }));
+  await manifestPage.goto(browserUrl);
+  await manifestPage.waitForFunction((version) => document.querySelector('[data-release-status]').textContent === `GitHub 最新正式版 · ${version}`, NEWER_VERSION);
+  assert.equal(await manifestPage.locator('[data-download]').first().getAttribute('href'), `https://github.com/arrry-07/chaoxing-journal/releases/download/v${NEWER_VERSION}/chaoxing-journal-${NEWER_VERSION}.apk`);
+  await manifestPage.locator('.checksum > summary').click();
+  assert.equal(await manifestPage.locator('[data-checksum-value]').isHidden(), false);
+  assert.equal(await manifestPage.locator('[data-checksum-value]').textContent(), manifestChecksum);
+  assert.equal(await manifestPage.locator('[data-copy-checksum]').isDisabled(), false);
+  pass('API outage upgrades seamlessly from newer same-origin release.json');
+  await manifestContext.close();
 
   const noScriptContext = await browser.newContext({ javaScriptEnabled: false });
   const noScriptPage = await noScriptContext.newPage();

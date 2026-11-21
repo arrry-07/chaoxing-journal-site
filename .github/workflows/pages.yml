@@ -34,6 +34,7 @@ jobs:
         run: |
           node --check scripts/site.js
           node --check scripts/release-store.js
+          node --check scripts/sync-release.js
           node scripts/check-site.js
       - name: Package static website
         run: node scripts/package-site.js

@@ -1,4 +1,4 @@
-import { applyRelease, FALLBACK_RELEASE, fetchLatestRelease } from './release-store.js';
+import { applyRelease, FALLBACK_RELEASE, resolveLatestRelease } from './release-store.js';
 
 const menuButton = document.querySelector('.menu-button');
 const navigation = document.querySelector('.main-nav');
@@ -35,17 +35,22 @@ function markSection(id) {
 }
 
 if ('IntersectionObserver' in window) {
-  const visibleSections = new Map();
+  const visibleSections = new Set();
+  const syncActiveSection = () => {
+    const current = [...visibleSections]
+      .sort((first, second) => Math.abs(first.getBoundingClientRect().top - 100) - Math.abs(second.getBoundingClientRect().top - 100))[0];
+    if (current) markSection(current.id);
+    else if (window.scrollY < 250) markSection('');
+  };
   const observer = new IntersectionObserver((entries) => {
     entries.forEach((entry) => {
-      if (entry.isIntersecting) visibleSections.set(entry.target.id, entry.boundingClientRect.top);
-      else visibleSections.delete(entry.target.id);
+      if (entry.isIntersecting) visibleSections.add(entry.target);
+      else visibleSections.delete(entry.target);
     });
-    const current = [...visibleSections].sort((first, second) => Math.abs(first[1] - 100) - Math.abs(second[1] - 100))[0];
-    if (current) markSection(current[0]);
-    else if (window.scrollY < 250) markSection('');
-  }, { rootMargin: '-85px 0px -45% 0px', threshold: 0 });
+    syncActiveSection();
+  }, { rootMargin: '-85px 0px -45% 0px', threshold: [0, 0.1, 0.25, 0.5, 0.75, 1] });
   trackedSections.forEach((section) => { if (section) observer.observe(section); });
+  window.addEventListener('scrollend', syncActiveSection, { passive: true });
 }
 navigationLinks.forEach((link) => link.addEventListener('click', () => markSection(link.getAttribute('href').slice(1))));
 
@@ -191,16 +196,68 @@ document.querySelectorAll('[data-download]').forEach((link) => {
   });
 });
 
-let updateController;
+const VISIBLE_POLL_INTERVAL_MS = 300_000;
+const VISIBILITY_THROTTLE_MS = 60_000;
+const ONLINE_THROTTLE_MS = 5_000;
+
+let updateController = null;
+let pollTimer = null;
+let lastCheckedAt = 0;
+let isChecking = false;
+
 async function updateRelease() {
-  updateController?.abort();
-  updateController = new AbortController();
+  if (isChecking) return;
+  isChecking = true;
+  const previousCheckedAt = lastCheckedAt;
+  lastCheckedAt = Date.now();
+  const controller = new AbortController();
+  updateController = controller;
   try {
-    const result = await fetchLatestRelease({ signal: updateController.signal, timeoutMs: 6000 });
-    if (!updateController.signal.aborted) applyRelease(document, result);
+    const result = await resolveLatestRelease({ signal: controller.signal, timeoutMs: 6000 });
+    if (!controller.signal.aborted) applyRelease(document, result);
   } catch {
-    if (!updateController.signal.aborted) applyRelease(document, { release: FALLBACK_RELEASE, isFallback: true });
+    if (!controller.signal.aborted) applyRelease(document, { release: FALLBACK_RELEASE, isFallback: true });
+  } finally {
+    if (controller.signal.aborted) lastCheckedAt = previousCheckedAt;
+    if (updateController === controller) updateController = null;
+    isChecking = false;
   }
 }
-window.addEventListener('pagehide', () => updateController?.abort(), { once: true });
+
+function stopReleasePolling() {
+  if (pollTimer !== null) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+function startReleasePolling() {
+  if (pollTimer !== null || document.visibilityState === 'hidden') return;
+  pollTimer = setInterval(() => {
+    if (document.visibilityState === 'visible') updateRelease();
+  }, VISIBLE_POLL_INTERVAL_MS);
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    stopReleasePolling();
+    updateController?.abort();
+    return;
+  }
+  if (document.visibilityState === 'visible') {
+    if (Date.now() - lastCheckedAt >= VISIBILITY_THROTTLE_MS) updateRelease();
+    startReleasePolling();
+  }
+});
+
+window.addEventListener('online', () => {
+  if (Date.now() - lastCheckedAt >= ONLINE_THROTTLE_MS) updateRelease();
+});
+
+window.addEventListener('pagehide', () => {
+  stopReleasePolling();
+  updateController?.abort();
+});
+
 updateRelease();
+startReleasePolling();

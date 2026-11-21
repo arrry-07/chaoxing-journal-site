@@ -2,15 +2,19 @@ export const APP_REPOSITORY = 'https://github.com/arrry-07/chaoxing-journal';
 export const RELEASE_API = 'https://api.github.com/repos/arrry-07/chaoxing-journal/releases/latest';
 
 export const FALLBACK_RELEASE = Object.freeze({
-  version: '1.8.21',
-  tag: 'v1.8.21',
-  apkName: 'chaoxing-journal-1.8.21.apk',
-  downloadUrl: `${APP_REPOSITORY}/releases/download/v1.8.21/chaoxing-journal-1.8.21.apk`,
-  releaseUrl: `${APP_REPOSITORY}/releases/tag/v1.8.21`,
-  checksumUrl: `${APP_REPOSITORY}/releases/download/v1.8.21/SHA256SUMS.txt`,
-  checksum: 'd7a498451c1a656a1de73d92e2c3be3ffbf41f4a3ed06647455b548d437087e0',
-  size: 60777470,
+  version: '1.8.22',
+  tag: 'v1.8.22',
+  apkName: 'chaoxing-journal-1.8.22.apk',
+  downloadUrl: `${APP_REPOSITORY}/releases/download/v1.8.22/chaoxing-journal-1.8.22.apk`,
+  releaseUrl: `${APP_REPOSITORY}/releases/tag/v1.8.22`,
+  checksumUrl: `${APP_REPOSITORY}/releases/download/v1.8.22/SHA256SUMS.txt`,
+  checksum: '6bf09ee2c18982c2ab5458b2180d2c442221d4dce50d88b049cd07bd3de386db',
+  size: 60777502,
 });
+
+const MIN_APK_BYTES = 1048576;
+const MAX_APK_BYTES = 524288000;
+const appliedReleaseStates = new WeakMap();
 
 function parseVersionTag(tag) {
   if (typeof tag !== 'string') return null;
@@ -28,15 +32,19 @@ export function compareVersions(first, second) {
   return 0;
 }
 
-function validAssetUrl(asset, expectedUrl) {
-  if (typeof asset?.browser_download_url !== 'string') return false;
+function validHttpsGitHubUrl(value, expectedUrl) {
+  if (typeof value !== 'string') return false;
   try {
-    const url = new URL(asset.browser_download_url);
+    const url = new URL(value);
     return url.href === expectedUrl && url.protocol === 'https:' && url.hostname === 'github.com'
       && url.username === '' && url.password === '' && url.port === '' && url.search === '' && url.hash === '';
   } catch {
     return false;
   }
+}
+
+function validAssetUrl(asset, expectedUrl) {
+  return validHttpsGitHubUrl(asset?.browser_download_url, expectedUrl);
 }
 
 function validChecksum(value) {
@@ -56,7 +64,7 @@ export function parseGitHubRelease(release) {
   const apkName = `chaoxing-journal-${version}.apk`;
   const apk = release.assets.find((asset) => asset?.name === apkName);
   if (!apk || !validAssetUrl(apk, `${prefix}${apkName}`)
-    || !Number.isSafeInteger(apk.size) || apk.size < 1048576 || apk.size > 524288000) {
+    || !Number.isSafeInteger(apk.size) || apk.size < MIN_APK_BYTES || apk.size > MAX_APK_BYTES) {
     throw new Error('invalid-apk');
   }
   const checksum = release.assets.find((asset) => asset?.name === 'SHA256SUMS.txt');
@@ -75,33 +83,127 @@ export function parseGitHubRelease(release) {
   };
 }
 
+export function parseSiteReleaseManifest(manifest) {
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
+    throw new Error('invalid-manifest');
+  }
+  if (typeof manifest.version !== 'string' || !/^\d+\.\d+\.\d+$/.test(manifest.version)) {
+    throw new Error('invalid-version');
+  }
+  const version = manifest.version;
+  const tag = `v${version}`;
+  const apkName = `chaoxing-journal-${version}.apk`;
+  if (manifest.tag !== tag || manifest.apkName !== apkName) {
+    throw new Error('invalid-manifest');
+  }
+  const downloadUrl = `${APP_REPOSITORY}/releases/download/${tag}/${apkName}`;
+  const releaseUrl = `${APP_REPOSITORY}/releases/tag/${tag}`;
+  const checksumUrl = `${APP_REPOSITORY}/releases/download/${tag}/SHA256SUMS.txt`;
+  if (!validHttpsGitHubUrl(manifest.downloadUrl, downloadUrl)
+    || !validHttpsGitHubUrl(manifest.releaseUrl, releaseUrl)
+    || !validHttpsGitHubUrl(manifest.checksumUrl, checksumUrl)) {
+    throw new Error('invalid-manifest-url');
+  }
+  if (!Number.isSafeInteger(manifest.size) || manifest.size < MIN_APK_BYTES || manifest.size > MAX_APK_BYTES) {
+    throw new Error('invalid-apk');
+  }
+  const checksumValue = validChecksum(manifest.checksum);
+  if (checksumValue === null) throw new Error('invalid-digest');
+  if (compareVersions(version, FALLBACK_RELEASE.version) <= 0) {
+    throw new Error('manifest-not-newer');
+  }
+  return {
+    version,
+    tag,
+    apkName,
+    downloadUrl,
+    releaseUrl,
+    checksumUrl,
+    checksum: checksumValue,
+    size: manifest.size,
+  };
+}
+
 export function formatBytes(bytes) {
   return `${(bytes / 1048576).toFixed(1)} MB`;
 }
 
-export async function fetchLatestRelease({ fetchImplementation = globalThis.fetch, signal, timeoutMs = 6000 } = {}) {
-  if (typeof fetchImplementation !== 'function') throw new Error('fetch-unavailable');
+function createRequestController(signal, timeoutMs, timeoutReason = 'timeout') {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(new Error('timeout')), timeoutMs);
+  const timeout = setTimeout(() => controller.abort(new Error(timeoutReason)), timeoutMs);
   const onAbort = () => controller.abort(signal.reason);
   if (signal?.aborted) onAbort();
   signal?.addEventListener('abort', onAbort, { once: true });
+  return {
+    signal: controller.signal,
+    cleanup() {
+      clearTimeout(timeout);
+      signal?.removeEventListener('abort', onAbort);
+    },
+  };
+}
+
+export async function fetchLatestRelease({ fetchImplementation = globalThis.fetch, signal, timeoutMs = 6000 } = {}) {
+  if (typeof fetchImplementation !== 'function') throw new Error('fetch-unavailable');
+  const request = createRequestController(signal, timeoutMs, 'timeout');
   try {
     const response = await fetchImplementation(RELEASE_API, {
       headers: { Accept: 'application/vnd.github+json' },
-      signal: controller.signal,
+      signal: request.signal,
     });
     if (!response.ok) throw new Error('release-request-failed');
     const latest = parseGitHubRelease(await response.json());
     return { release: latest, isFallback: false };
   } finally {
-    clearTimeout(timeout);
-    signal?.removeEventListener('abort', onAbort);
+    request.cleanup();
+  }
+}
+
+export async function resolveLatestRelease({
+  fetchImplementation = globalThis.fetch,
+  manifestUrl = './release.json',
+  signal,
+  timeoutMs = 6000,
+} = {}) {
+  try {
+    return await fetchLatestRelease({ fetchImplementation, signal, timeoutMs });
+  } catch (apiError) {
+    if (signal?.aborted || typeof fetchImplementation !== 'function') {
+      throw apiError;
+    }
+    const manifestTimeoutMs = Math.max(1, Math.min(timeoutMs, 4000));
+    const request = createRequestController(signal, manifestTimeoutMs, 'manifest-timeout');
+    try {
+      const response = await fetchImplementation(manifestUrl, {
+        headers: { Accept: 'application/json' },
+        cache: 'no-store',
+        signal: request.signal,
+      });
+      if (!response.ok) throw new Error('manifest-request-failed');
+      const manifestRelease = parseSiteReleaseManifest(await response.json());
+      return { release: manifestRelease, isFallback: false };
+    } finally {
+      request.cleanup();
+    }
   }
 }
 
 export function applyRelease(document, result) {
   const { release, isFallback } = result;
+  const previousState = appliedReleaseStates.get(document);
+  const nextState = {
+    version: release.version,
+    checksum: release.checksum ?? null,
+    isFallback: Boolean(isFallback),
+  };
+  const isSameState = Boolean(
+    previousState
+    && previousState.version === nextState.version
+    && previousState.checksum === nextState.checksum
+    && previousState.isFallback === nextState.isFallback,
+  );
+  appliedReleaseStates.set(document, nextState);
+
   document.querySelectorAll('[data-download]').forEach((link) => { link.href = release.downloadUrl; });
   document.querySelectorAll('[data-release-version]').forEach((element) => { element.textContent = release.version; });
   document.querySelectorAll('[data-release-size]').forEach((element) => { element.textContent = formatBytes(release.size); });
@@ -132,7 +234,10 @@ export function applyRelease(document, result) {
     const copyButton = document.querySelector('[data-copy-checksum]');
     const copyStatus = document.querySelector('[data-copy-status]');
     if (copyButton) copyButton.disabled = !release.checksum;
-    if (copyStatus) copyStatus.textContent = release.checksum ? '' : '当前版本未提供可复制摘要。';
+    if (copyStatus) {
+      if (!release.checksum) copyStatus.textContent = '当前版本未提供可复制摘要。';
+      else if (!(isSameState && copyStatus.textContent)) copyStatus.textContent = '';
+    }
   }
   return result;
 }

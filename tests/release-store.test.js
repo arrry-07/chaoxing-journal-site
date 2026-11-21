@@ -7,6 +7,8 @@ import {
   fetchLatestRelease,
   formatBytes,
   parseGitHubRelease,
+  parseSiteReleaseManifest,
+  resolveLatestRelease,
 } from '../scripts/release-store.js';
 
 function nextPatch(version, delta) {
@@ -83,7 +85,8 @@ test('compares dotted versions numerically, including two-digit patches', () => 
 });
 
 test('formats the actual byte count as MiB for the visitor-facing MB label', () => {
-  assert.equal(formatBytes(FALLBACK_RELEASE.size), '58.0 MB');
+  assert.equal(formatBytes(FALLBACK_RELEASE.size), `${(FALLBACK_RELEASE.size / 1048576).toFixed(1)} MB`);
+  assert.equal(formatBytes(60777470), '58.0 MB');
   assert.equal(formatBytes(59442054), '56.7 MB');
 });
 
@@ -182,7 +185,7 @@ test('renders all links, versions, size and checksum from the same newer release
   const source = response(NEWER_VERSION, { digest: `sha256:${'a'.repeat(64)}` });
   applyRelease(document, { release: parseGitHubRelease(source), isFallback: false });
   assert.equal(document.groups['[data-release-version]'][0].textContent, NEWER_VERSION);
-  assert.equal(document.groups['[data-release-size]'][0].textContent, '58.0 MB');
+  assert.equal(document.groups['[data-release-size]'][0].textContent, formatBytes(FALLBACK_RELEASE.size));
   assert.equal(document.groups['[data-apk-name]'][0].textContent, `chaoxing-journal-${NEWER_VERSION}.apk`);
   assert.equal(document.groups['[data-apk-label]'][0].textContent, `下载 chaoxing-journal-${NEWER_VERSION}.apk`);
   assert.equal(document.groups['[data-download]'][1].href, source.assets[0].browser_download_url);
@@ -215,10 +218,134 @@ test('does not show a fallback digest for a new release without a valid checksum
   assert.equal(document.copyStatus.textContent, '当前版本未提供可复制摘要。');
 });
 
+function siteManifest(version = NEWER_VERSION, {
+  size = FALLBACK_RELEASE.size + 32,
+  checksum = 'C'.repeat(64),
+} = {}) {
+  const tag = `v${version}`;
+  const apkName = `chaoxing-journal-${version}.apk`;
+  const base = `https://github.com/arrry-07/chaoxing-journal/releases/download/${tag}`;
+  return {
+    version,
+    tag,
+    apkName,
+    downloadUrl: `${base}/${apkName}`,
+    releaseUrl: `https://github.com/arrry-07/chaoxing-journal/releases/tag/${tag}`,
+    checksumUrl: `${base}/SHA256SUMS.txt`,
+    checksum,
+    size,
+  };
+}
+
 test('restores checksum copying when a valid fallback is available again', () => {
   const document = mockDocument();
   document.copyButton.disabled = true;
   applyRelease(document, { release: FALLBACK_RELEASE, isFallback: true });
   assert.equal(document.copyButton.disabled, false);
+  assert.equal(document.copyStatus.textContent, '');
+});
+
+test('parseSiteReleaseManifest accepts a valid newer manifest and normalizes checksum casing', () => {
+  const parsed = parseSiteReleaseManifest(siteManifest());
+  assert.equal(parsed.version, NEWER_VERSION);
+  assert.equal(parsed.checksum, 'c'.repeat(64));
+  assert.equal(parsed.size, FALLBACK_RELEASE.size + 32);
+});
+
+for (const [name, sourceFactory, expected] of [
+  ['same version as fallback', () => siteManifest(FALLBACK_RELEASE.version), 'manifest-not-newer'],
+  ['older version than fallback', () => siteManifest(OLDER_VERSION), 'manifest-not-newer'],
+  ['null manifest', () => null, 'invalid-manifest'],
+  ['array manifest', () => [], 'invalid-manifest'],
+  ['invalid version string', () => ({ ...siteManifest(), version: 'v1.9.0' }), 'invalid-version'],
+  ['mismatched tag', () => ({ ...siteManifest(), tag: `v${FALLBACK_RELEASE.version}` }), 'invalid-manifest'],
+  ['mismatched apkName', () => ({ ...siteManifest(), apkName: 'other.apk' }), 'invalid-manifest'],
+  ['non-github downloadUrl', () => ({ ...siteManifest(), downloadUrl: `https://example.com/chaoxing-journal-${NEWER_VERSION}.apk` }), 'invalid-manifest-url'],
+  ['http releaseUrl', () => ({ ...siteManifest(), releaseUrl: `http://github.com/arrry-07/chaoxing-journal/releases/tag/v${NEWER_VERSION}` }), 'invalid-manifest-url'],
+  ['cross-version checksumUrl', () => ({ ...siteManifest(), checksumUrl: FALLBACK_RELEASE.checksumUrl }), 'invalid-manifest-url'],
+  ['invalid checksum', () => siteManifest(NEWER_VERSION, { checksum: 'invalid-sha256' }), 'invalid-digest'],
+  ['too small size', () => siteManifest(NEWER_VERSION, { size: 1024 }), 'invalid-apk'],
+  ['too large size', () => siteManifest(NEWER_VERSION, { size: 524288001 }), 'invalid-apk'],
+]) {
+  test(`parseSiteReleaseManifest rejects unsafe manifest: ${name}`, () => {
+    assert.throws(() => parseSiteReleaseManifest(sourceFactory()), new Error(expected));
+  });
+}
+
+test('resolveLatestRelease prefers GitHub API without requesting release.json', async () => {
+  const requestedUrls = [];
+  const result = await resolveLatestRelease({
+    fetchImplementation: async (url) => {
+      requestedUrls.push(url);
+      return { ok: true, json: async () => response(NEWER_VERSION, { digest: `sha256:${'d'.repeat(64)}` }) };
+    },
+  });
+  assert.deepEqual(requestedUrls, ['https://api.github.com/repos/arrry-07/chaoxing-journal/releases/latest']);
+  assert.equal(result.isFallback, false);
+  assert.equal(result.release.version, NEWER_VERSION);
+});
+
+test('resolveLatestRelease upgrades seamlessly from same-origin release.json when GitHub API fails', async () => {
+  const requests = [];
+  const manifest = siteManifest(NEWER_VERSION, { checksum: 'e'.repeat(64) });
+  const result = await resolveLatestRelease({
+    fetchImplementation: async (url, options) => {
+      requests.push({ url, options });
+      if (url.startsWith('https://api.github.com/')) {
+        return { ok: false, status: 503 };
+      }
+      return { ok: true, json: async () => manifest };
+    },
+  });
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1].url, './release.json');
+  assert.equal(requests[1].options.cache, 'no-store');
+  assert.equal(requests[1].options.headers.Accept, 'application/json');
+  assert.equal(result.isFallback, false);
+  assert.equal(result.release.version, NEWER_VERSION);
+  assert.equal(result.release.checksum, 'e'.repeat(64));
+});
+
+test('resolveLatestRelease rejects when GitHub API fails and release.json matches fallback version', async () => {
+  const currentManifest = siteManifest(FALLBACK_RELEASE.version, { checksum: FALLBACK_RELEASE.checksum, size: FALLBACK_RELEASE.size });
+  await assert.rejects(() => resolveLatestRelease({
+    fetchImplementation: async (url) => {
+      if (url.startsWith('https://api.github.com/')) {
+        throw new Error('network-down');
+      }
+      return { ok: true, json: async () => currentManifest };
+    },
+  }), new Error('manifest-not-newer'));
+});
+
+test('resolveLatestRelease does not fall back to release.json after external abort', async () => {
+  const requestedUrls = [];
+  const controller = new AbortController();
+  await assert.rejects(() => resolveLatestRelease({
+    signal: controller.signal,
+    fetchImplementation: async (url) => {
+      requestedUrls.push(url);
+      controller.abort(new Error('page-hidden'));
+      throw new Error('page-hidden');
+    },
+  }), new Error('page-hidden'));
+  assert.deepEqual(requestedUrls, ['https://api.github.com/repos/arrry-07/chaoxing-journal/releases/latest']);
+});
+
+test('applyRelease preserves non-empty copy status across identical polls and resets on state change', () => {
+  const document = mockDocument();
+  const initial = { release: FALLBACK_RELEASE, isFallback: false };
+  applyRelease(document, initial);
+  document.copyStatus.textContent = 'SHA-256 已复制。请与同版本校验文件核对。';
+
+  applyRelease(document, { release: { ...FALLBACK_RELEASE }, isFallback: false });
+  assert.equal(document.copyStatus.textContent, 'SHA-256 已复制。请与同版本校验文件核对。');
+
+  applyRelease(document, { release: FALLBACK_RELEASE, isFallback: true });
+  assert.equal(document.copyStatus.textContent, '');
+
+  document.copyStatus.textContent = 'SHA-256 已复制。请与同版本校验文件核对。';
+  const newer = parseGitHubRelease(response(NEWER_VERSION, { digest: `sha256:${'f'.repeat(64)}` }));
+  applyRelease(document, { release: newer, isFallback: false });
   assert.equal(document.copyStatus.textContent, '');
 });

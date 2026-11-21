@@ -1,0 +1,10 @@
+{
+  "version": "1.8.22",
+  "tag": "v1.8.22",
+  "apkName": "chaoxing-journal-1.8.22.apk",
+  "downloadUrl": "https://github.com/arrry-07/chaoxing-journal/releases/download/v1.8.22/chaoxing-journal-1.8.22.apk",
+  "releaseUrl": "https://github.com/arrry-07/chaoxing-journal/releases/tag/v1.8.22",
+  "checksumUrl": "https://github.com/arrry-07/chaoxing-journal/releases/download/v1.8.22/SHA256SUMS.txt",
+  "checksum": "6bf09ee2c18982c2ab5458b2180d2c442221d4dce50d88b049cd07bd3de386db",
+  "size": 60777502
+}
