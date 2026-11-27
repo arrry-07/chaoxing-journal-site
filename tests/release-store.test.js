@@ -17,7 +17,7 @@ function nextPatch(version, delta) {
   return parts.join('.');
 }
 
-const OLDER_VERSION = nextPatch(FALLBACK_RELEASE.version, -1);
+const OLDER_VERSION = '0.0.0';
 const NEWER_VERSION = nextPatch(FALLBACK_RELEASE.version, 1);
 
 function response(version = FALLBACK_RELEASE.version, {
